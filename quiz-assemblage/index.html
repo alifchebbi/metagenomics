@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quiz - Assemblage métagénomique - M2 Bioinformatique</title>
+<style>
+:root{--ink:#1a1a1a;--mut:#666;--card:#f4f4f4;--line:#d9d9d9;--ok:#1b7f4b;--ko:#b3261e;--acc:#1f4e79}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;color:var(--ink);background:#fff;line-height:1.45}
+main{max-width:680px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.35rem;margin:.2rem 0}
+.sub{color:var(--mut);font-size:.9rem;margin-bottom:18px}
+.card{background:var(--card);border-radius:14px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:14px}
+label{display:block;font-weight:bold;margin:10px 0 4px;font-size:.9rem}
+input[type=text]{width:100%;padding:11px;border:1px solid var(--line);border-radius:8px;font-size:1rem}
+button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:12px 18px;background:var(--acc);color:#fff;font-weight:bold}
+button:disabled{opacity:.5;cursor:default}
+.opt{display:block;width:100%;text-align:left;background:#fff;color:var(--ink);border:1px solid var(--line);margin:8px 0;font-weight:normal;padding:12px}
+.opt.ok{border-color:var(--ok);background:#e6f4ec}
+.opt.ko{border-color:var(--ko);background:#fbe9e7}
+.bar{height:8px;background:var(--line);border-radius:6px;overflow:hidden;margin-bottom:12px}
+.bar>div{height:100%;background:var(--acc);width:0;transition:width .3s}
+.meta{display:flex;justify-content:space-between;color:var(--mut);font-size:.85rem;margin-bottom:6px}
+.expl{margin-top:10px;font-size:.92rem;padding:10px;background:#fff;border-left:4px solid var(--acc);border-radius:6px}
+.score{font-size:2.4rem;font-weight:bold;color:var(--acc);margin:6px 0}
+.hidden{display:none}
+.msg{font-size:.9rem;margin-top:10px}
+</style>
+</head>
+<body>
+<main>
+<h1>Quiz - Assemblage métagénomique</h1>
+<div class="sub">Master 2 Bioinformatique - ISBST, Université de la Manouba - 20 questions à choix unique</div>
+
+<section id="start" class="card">
+  <label for="nom">Nom</label><input id="nom" type="text" autocomplete="family-name">
+  <label for="prenom">Prénom</label><input id="prenom" type="text" autocomplete="given-name">
+  <p class="sub" style="margin-top:12px">Une seule réponse correcte par question. Votre score sera envoyé automatiquement à l'enseignant à la fin.</p>
+  <button id="go">Commencer</button>
+  <div id="err" class="msg" style="color:var(--ko)"></div>
+</section>
+
+<section id="quiz" class="card hidden">
+  <div class="meta"><span id="who"></span><span id="count"></span></div>
+  <div class="bar"><div id="prog"></div></div>
+  <h2 id="qtxt" style="font-size:1.05rem"></h2>
+  <div id="opts"></div>
+  <div id="expl" class="expl hidden"></div>
+  <p><button id="next" class="hidden">Question suivante</button></p>
+</section>
+
+<section id="end" class="card hidden">
+  <div id="endwho" class="sub"></div>
+  <div class="score" id="score"></div>
+  <div id="grade"></div>
+  <div id="sendmsg" class="msg"></div>
+  <p><button id="retry" class="hidden">Réessayer l'envoi</button></p>
+</section>
+</main>
+
+<script src="questions.js"></script>
+<script>
+// URL du déploiement Google Apps Script (voir README.md). Laisser vide tant que non configuré.
+const SCRIPT_URL = "";
+const TEACHER = "alif.chebbi@isbst.uma.tn";
+
+const $ = id => document.getElementById(id);
+const shuffle = a => { a = a.slice(); for (let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; };
+let order, idx = 0, score = 0, answers = [], student = "", t0 = 0, payload = null;
+
+$("go").onclick = () => {
+  const n = $("nom").value.trim(), p = $("prenom").value.trim();
+  if (n.length < 2 || p.length < 2) { $("err").textContent = "Veuillez saisir votre nom et votre prénom."; return; }
+  student = (p + " " + n.toUpperCase());
+  order = shuffle(QUESTIONS.map((_, i) => i));
+  t0 = Date.now();
+  $("start").classList.add("hidden"); $("quiz").classList.remove("hidden");
+  $("who").textContent = student; show();
+};
+
+function show() {
+  const q = QUESTIONS[order[idx]];
+  $("count").textContent = "Question " + (idx+1) + " / " + QUESTIONS.length;
+  $("prog").style.width = (idx / QUESTIONS.length * 100) + "%";
+  $("qtxt").textContent = q.q;
+  $("expl").classList.add("hidden"); $("next").classList.add("hidden");
+  const box = $("opts"); box.innerHTML = "";
+  shuffle(q.o.map((t, i) => ({t, ok: i === 0}))).forEach(op => {
+    const b = document.createElement("button");
+    b.className = "opt"; b.textContent = op.t; b.dataset.ok = op.ok ? "1" : "0";
+    b.onclick = () => answer(b, q);
+    box.appendChild(b);
+  });
+}
+
+function answer(btn, q) {
+  const good = btn.dataset.ok === "1";
+  if (good) score++;
+  answers.push({q: order[idx] + 1, ok: good, choix: btn.textContent});
+  document.querySelectorAll(".opt").forEach(b => {
+    b.disabled = true;
+    if (b.dataset.ok === "1") b.classList.add("ok");
+  });
+  if (!good) btn.classList.add("ko");
+  $("expl").textContent = (good ? "Correct. " : "Incorrect. ") + q.e;
+  $("expl").classList.remove("hidden");
+  $("next").textContent = idx === QUESTIONS.length - 1 ? "Voir mon score" : "Question suivante";
+  $("next").classList.remove("hidden");
+}
+
+$("next").onclick = () => { idx++; idx < QUESTIONS.length ? show() : finish(); };
+
+function finish() {
+  $("quiz").classList.add("hidden"); $("end").classList.remove("hidden");
+  const total = QUESTIONS.length, note = (score / total * 20).toFixed(1);
+  $("endwho").textContent = student;
+  $("score").textContent = score + " / " + total + "  (" + note + " / 20)";
+  $("grade").textContent = score >= 16 ? "Excellent travail." : score >= 12 ? "Bon niveau, revoyez les points manqués." : score >= 10 ? "Acquis de base, à consolider." : "À revoir : reprenez le cours sur l'assemblage et le binning.";
+  payload = {
+    nom_prenom: student, score: score, total: total, note20: note,
+    duree_s: Math.round((Date.now() - t0) / 1000),
+    date: new Date().toISOString(),
+    detail: answers.map(a => "Q" + a.q + ":" + (a.ok ? "1" : "0")).join(" ")
+  };
+  send();
+}
+
+async function send() {
+  const m = $("sendmsg"); $("retry").classList.add("hidden");
+  if (!SCRIPT_URL) { m.textContent = "Envoi non configuré : montrez cet écran à l'enseignant."; return; }
+  m.textContent = "Envoi du résultat en cours...";
+  try {
+    await fetch(SCRIPT_URL, {method: "POST", mode: "no-cors", headers: {"Content-Type": "text/plain;charset=utf-8"}, body: JSON.stringify(payload)});
+    m.textContent = "Résultat envoyé à l'enseignant. Vous pouvez fermer la page.";
+  } catch (e) {
+    m.textContent = "Échec de l'envoi (réseau). Réessayez.";
+    $("retry").classList.remove("hidden");
+  }
+}
+$("retry").onclick = send;
+</script>
+</body>
+</html>
